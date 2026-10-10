@@ -159,25 +159,35 @@ function fitSummaries() {
   });
 }
 
+// Calls per minute (HH:MM, UTC), counted once instead of on every scroll
+const callsPerMinute = new Map();
+for (const event of window.ACTIVITY) {
+  const minute = event.timestamp.slice(11, 16);
+  callsPerMinute.set(minute, (callsPerMinute.get(minute) || 0) + 1);
+}
+
 function onScroll() {
+  // Read everything first, so the browser lays out the page once
   const scrolled = window.scrollY;
-  const max = document.documentElement.scrollHeight - window.innerHeight;
+  const viewport = window.innerHeight;
+  const max = document.documentElement.scrollHeight - viewport;
+  const rows = Array.from(resultsList.querySelectorAll('.result-row'));
+  const inFocus = rows.map((row) => {
+    const top = row.getBoundingClientRect().top;
+    return top > viewport * 0.3 && top < viewport * 0.6;
+  });
+
+  // Then write
   progress.style.width = (max > 0 ? (scrolled / max) * 100 : 0) + '%';
   topbar.classList.toggle('topbar-raised', scrolled > 8);
   topbar.style.paddingBlock = Math.max(6, 12 - scrolled / 20) + 'px';
-  backToTop.classList.toggle('visible', scrolled > window.innerHeight);
-  resultsList.querySelectorAll('.result-row').forEach((row) => {
-    row.classList.remove('in-focus');
-    const rect = row.getBoundingClientRect();
-    if (rect.top > window.innerHeight * 0.3 && rect.top < window.innerHeight * 0.6) {
-      row.classList.add('in-focus');
-    }
-  });
-  const focused = resultsList.querySelector('.in-focus');
+  backToTop.classList.toggle('visible', scrolled > viewport);
+  rows.forEach((row, index) => row.classList.toggle('in-focus', inFocus[index]));
+
+  const focused = rows[inFocus.indexOf(true)];
   if (focused) {
     const minute = focused.dataset.minute;
-    const sameMinute = window.ACTIVITY.filter((event) => new Date(event.timestamp).toISOString().slice(11, 16) === minute).length;
-    scrollContext.textContent = minute + ' UTC · ' + sameMinute + ' calls that minute';
+    scrollContext.textContent = minute + ' UTC · ' + (callsPerMinute.get(minute) || 0) + ' calls that minute';
   } else {
     scrollContext.textContent = '';
   }
@@ -259,13 +269,13 @@ searchInput.addEventListener('input', () => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => renderResults(searchInput.value), 150);
 });
-window.addEventListener('scroll', onScroll);
+window.addEventListener('scroll', onScroll, { passive: true });
 window.addEventListener('resize', equalizeCardHeights);
 window.addEventListener('resize', fitSummaries);
 resultsList.addEventListener('mousemove', showPreview);
 resultsList.addEventListener('mouseleave', hidePreview);
-resultsList.addEventListener('wheel', hidePreview);
-resultsList.addEventListener('touchstart', hidePreview);
+resultsList.addEventListener('wheel', hidePreview, { passive: true });
+resultsList.addEventListener('touchstart', hidePreview, { passive: true });
 backToTop.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
 tickerToggle.addEventListener('click', () => (tickerPanel ? closeTicker() : openTicker()));
 
