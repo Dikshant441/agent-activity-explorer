@@ -157,9 +157,13 @@ function onScroll() {
   });
 
   // Then write
-  progress.style.width = (max > 0 ? (scrolled / max) * 100 : 0) + '%';
+  progress.style.transform = 'scaleX(' + (max > 0 ? scrolled / max : 0) + ')';
   topbar.classList.toggle('topbar-raised', scrolled > 8);
-  topbar.style.paddingBlock = Math.max(6, 12 - scrolled / 20) + 'px';
+  // The bar gets thinner as you scroll. The margin gives back the height it loses,
+  // so the content below it does not move.
+  const padding = Math.max(6, 12 - scrolled / 20);
+  topbar.style.paddingBlock = padding + 'px';
+  topbar.style.marginBottom = (12 - padding) * 2 + 'px';
   backToTop.classList.toggle('visible', scrolled > viewport);
   rows.forEach((row, index) => row.classList.toggle('in-focus', inFocus[index]));
 

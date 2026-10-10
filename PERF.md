@@ -173,3 +173,50 @@ A frame at 60 fps has 16.7 ms, so the old handler took about 20 frames' worth of
 | Calls per resize event | 1 | 0 |
 
 Card heights are within 1 px of the old ones (266 and 245 px, against 267 and 246 px). I believe the difference is rounding: the script set whole-pixel heights, and CSS keeps the fractional ones.
+
+### 11. The top bar resizes while you scroll and pushes the page around
+- **Symptom:** during the first 120 px of scrolling, everything below the top bar slides up by 12 px on its own, so the content does not track the scroll exactly. It is a layout shift caused by scrolling.
+- **How I found it:** DevTools console. I recorded the top bar height, the page height and the position of the hero and the first result row at five scroll positions.
+- **Root cause:**
+  - The scroll handler shrinks the sticky top bar's padding from 12 px to 6 px as you scroll. The bar is part of the page flow, so making it 12 px shorter moved everything below it and changed the page height on every scroll event.
+  - The reading progress bar was animated by changing its `width`, which is a layout property.
+- **Fix:**
+  - The bar still gets thinner, but it now gets a bottom margin equal to the height it loses, so the space it takes in the page stays constant. `main` uses `display: flow-root` so that margin is not collapsed away.
+  - The progress bar is full width and scaled with `transform: scaleX()`, which the browser can do without layout.
+- **Before / after** (scrolling from 0 to 120 px):
+
+| Measurement | Before | After |
+|---|---|---|
+| Top bar height | 65 px to 53 px | 65 px to 53 px (unchanged, by design) |
+| Page height | 10,918 px to 10,906 px | 10,918 px throughout |
+| Position of the first result row | moves 12 px | does not move |
+| Progress bar property changed per scroll | `width` | `transform` |
+
+### 12. Text waits for the web font, and the font is requested late
+- **Symptom:** text is not painted in its final form until the custom font has arrived, and the font does not even start downloading until late in the load.
+- **How I found it:** resource timings for the `.woff2` file, and the `font-display` value read from the `@font-face` rule.
+- **Root cause:**
+  - The `@font-face` rule had no `font-display`, so the browser uses its default: text in that font stays invisible while the font loads.
+  - The browser only discovers a font when it lays out text that needs it. Here that happened after the scripts had run, so the request started about a second into the load.
+- **Fix:**
+  - `font-display: swap`, so text shows at once in a fallback font and switches when the font is ready.
+  - A `<link rel="preload" as="font">` in the `<head>`, so the download starts with the first requests.
+- **Before / after:**
+
+| Measurement | Before | After |
+|---|---|---|
+| Font request starts | 1,094 ms | 32 ms |
+| Font finished downloading | 1,186 ms | 68 ms |
+| `font-display` | not set (text hidden while loading) | `swap` |
+
+### 13. The alerts bar animates `left`
+- **Symptom:** the scrolling alerts strip runs for as long as the page is open. Animating a layout property keeps the main thread busy on every frame, and the strip stutters whenever the page is doing other work.
+- **How I found it:** `getAnimations()` on the alerts track in the DevTools console, which lists the animated property. _(Add your own Performance panel observation here. I did not measure the per-frame cost.)_
+- **Root cause:** the keyframes moved the strip by changing `left` from `100%` to `-120%`. `left` is a layout property, so each frame needs layout and paint on the main thread. A `transform` can be animated by the compositor instead.
+- **Fix:** the track is now the full width of its container and moves with `transform: translateX(100%)` to `translateX(-120%)`. The start, middle and end positions match the old animation to within 1 px.
+- **Before / after:**
+
+| Measurement | Before | After |
+|---|---|---|
+| Animated property | `left` (layout) | `transform` (compositor) |
+| Start and end position of the strip | 1,455 px to -1,746 px | 1,456 px to -1,745 px |
