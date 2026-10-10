@@ -1,1 +1,28 @@
 # PERF: Perf Clinic fixes
+
+Entries are ordered by impact on the user, highest first. Each fix is its own commit.
+
+Numbers come from Chrome on my machine, timing the page's own functions with `performance.now()` in the DevTools console. They show the size of each change, not exact values for other machines.
+
+### 1. Search freezes the page on every keystroke
+- **Symptom:** typing in the search box locks the page. Letters appear late, and nothing scrolls or responds until the search finishes. The first paint is also delayed, because the same search runs once at startup.
+- **How I found it:** DevTools console. I timed `search()` and then dispatched seven `input` events to type "billing" through the real handler. _(Add your own Performance panel observation here.)_
+- **Root cause:** each keystroke ran a full search over all 100,000 events, and the search did three expensive things every time:
+  - It called `JSON.stringify` and `toLowerCase` on every event.
+  - It re-sorted the matches, creating two `Date` objects per comparison.
+  - It ran immediately for every letter, with no debounce.
+- **Fix:**
+  - Sort the events once at startup, comparing the ISO timestamp strings directly.
+  - Cache each event's lowercase search text, filled in idle time with `requestIdleCallback`.
+  - Return the sorted list directly for an empty query.
+  - Debounce the input by 150 ms.
+  - The results are identical to the old search. I compared both for several queries.
+- **Before / after:**
+
+| Measurement | Before | After |
+|---|---|---|
+| One search with a query ("billing") | 441 ms | 36 ms |
+| One search with an empty query | 4,756 ms | under 1 ms |
+| Main thread blocked while typing "billing" (7 letters) | 11,652 ms | 0.4 ms in the handlers, then one search |
+| Renders while typing "billing" | 7 | 1 |
+| DOMContentLoaded | 6,066 ms | 1,916 ms |

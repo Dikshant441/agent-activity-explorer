@@ -79,11 +79,38 @@ function rememberViewed(items) {
   }
 }
 
+// Newest first, sorted once. ISO timestamps sort correctly as plain strings.
+const sortedActivity = window.ACTIVITY.slice().sort((a, b) =>
+  a.timestamp < b.timestamp ? 1 : a.timestamp > b.timestamp ? -1 : 0
+);
+
+// Lowercase search text per event, built on first use and reused after that
+const searchTexts = new Array(sortedActivity.length);
+
+function searchText(index) {
+  if (searchTexts[index] === undefined) {
+    searchTexts[index] = JSON.stringify(sortedActivity[index]).toLowerCase();
+  }
+  return searchTexts[index];
+}
+
+// Fill the search text in small chunks while the browser is idle,
+// so the first search does not pay for all of it at once
+let indexedCount = 0;
+
+function buildSearchIndex(deadline) {
+  while (indexedCount < sortedActivity.length && deadline.timeRemaining() > 1) {
+    searchText(indexedCount++);
+  }
+  if (indexedCount < sortedActivity.length) requestIdleCallback(buildSearchIndex);
+}
+
+if ('requestIdleCallback' in window) requestIdleCallback(buildSearchIndex);
+
 function search(query) {
   const needle = query.trim().toLowerCase();
-  return window.ACTIVITY
-    .filter((event) => JSON.stringify(event).toLowerCase().includes(needle))
-    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  if (!needle) return sortedActivity;
+  return sortedActivity.filter((event, index) => searchText(index).includes(needle));
 }
 
 function renderResults(query) {
@@ -214,7 +241,12 @@ function closeTicker() {
   tickerToggle.textContent = 'Show live calls';
 }
 
-searchInput.addEventListener('input', () => renderResults(searchInput.value));
+// Wait until typing pauses before searching
+let searchTimer;
+searchInput.addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => renderResults(searchInput.value), 150);
+});
 window.addEventListener('scroll', onScroll);
 window.addEventListener('resize', equalizeCardHeights);
 window.addEventListener('resize', fitSummaries);
