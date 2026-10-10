@@ -137,13 +137,25 @@ function renderResults(query) {
 }
 
 function fitSummaries() {
-  resultsList.querySelectorAll('.result-summary').forEach((cell) => {
-    let size = 14;
-    cell.style.fontSize = size + 'px';
-    while (cell.scrollWidth > cell.clientWidth && size > 11) {
-      size -= 0.5;
-      cell.style.fontSize = size + 'px';
-    }
+  const cells = Array.from(resultsList.querySelectorAll('.result-summary'));
+  const maxSize = 14;
+  const minSize = 11;
+
+  // Write: start every cell at the largest size
+  cells.forEach((cell) => {
+    cell.style.fontSize = maxSize + 'px';
+  });
+
+  // Read: measure every cell in one layout pass.
+  // Text width scales with font size, so the size that fits can be calculated.
+  const sizes = cells.map((cell) => {
+    const fitting = Math.floor((maxSize * cell.clientWidth * 2) / cell.scrollWidth) / 2;
+    return Math.max(minSize, Math.min(maxSize, fitting));
+  });
+
+  // Write: apply the sizes
+  cells.forEach((cell, index) => {
+    cell.style.fontSize = sizes[index] + 'px';
   });
 }
 

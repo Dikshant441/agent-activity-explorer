@@ -26,3 +26,20 @@ Numbers come from Chrome on my machine, timing the page's own functions with `pe
 | Main thread blocked while typing "billing" (7 letters) | 11,652 ms | 0.4 ms in the handlers, then one search |
 | Renders while typing "billing" | 7 | 1 |
 | DOMContentLoaded | 6,066 ms | 1,916 ms |
+
+### 2. Fitting the summary text forces layout hundreds of times
+- **Symptom:** every search result render stalls for most of a second before the list appears. Resizing the window stutters for the same reason.
+- **How I found it:** DevTools console. I timed `fitSummaries()` on its own and inside `renderResults()`. _(Add your own Performance panel observation here.)_
+- **Root cause:** layout thrashing. For each of the 200 rows the code set a font size (a write), then read `scrollWidth` (which forces the browser to lay out the page again), and repeated that up to seven times per row while shrinking the font by 0.5 px. That is up to 1,400 forced layouts per render.
+- **Fix:** batch the writes and the reads, so there are two layouts in total:
+  - Set every cell to the largest size.
+  - Read every cell's width in one pass and calculate the size that fits. Text width scales with font size, so no trial and error is needed.
+  - Apply the sizes.
+  - All 200 cells get exactly the same font size as before.
+- **Before / after:**
+
+| Measurement | Before | After |
+|---|---|---|
+| `fitSummaries()` for 200 rows | 749 ms | 10 ms |
+| `renderResults()` in total | 776 ms | 142 ms |
+| DOMContentLoaded | 1,916 ms | 1,451 ms |
