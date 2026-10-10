@@ -64,3 +64,25 @@ Numbers come from Chrome on my machine, timing the page's own functions with `pe
 | `onScroll()` with no row highlighted | 1.8 ms | about 1 ms |
 
 A frame at 60 fps has 16.7 ms, so the old handler took about 20 frames' worth of time per scroll event.
+
+### 4. The page downloads 6.5 MB, most of it oversized images
+- **Symptom:** on a normal connection the hero image appears late and paints in from the top. The page also jumps as images arrive, because nothing reserves their space.
+- **How I found it:** the browser's resource timings (the same data as the DevTools Network panel), read with `performance.getEntriesByType('resource')`, plus the `naturalWidth` and `clientWidth` of each image. _(Add your own Network panel observation here.)_
+- **Root cause:**
+  - The hero was a 4.2 MB PNG. PNG is a poor format for a photographic, noisy gradient.
+  - The 12 avatars were 320×320 PNGs of about 160 KB each, displayed at 48×48. That is 44 times more pixels than needed.
+  - No image had `width` and `height`, so the browser could not reserve space before the files arrived.
+  - All avatars loaded up front, although they sit below the first screen.
+- **Fix:**
+  - Hero: re-encoded as WebP at the same 1700×950 size, plus a 960 px version chosen through `srcset` and `sizes` on smaller screens. It has `fetchpriority="high"`, since it is the largest element on first view.
+  - Avatars: resized to 96×96 WebP (2× the displayed size, for high-density screens), with `loading="lazy"` and `decoding="async"`.
+  - Every image now has `width` and `height`, so its space is reserved.
+  - I converted the images with Chrome's built-in WebP encoder (canvas `toBlob`, quality 0.8 for the hero and 0.85 for avatars) and removed the PNG files.
+- **Before / after:**
+
+| Measurement | Before | After |
+|---|---|---|
+| Hero image | 4,171 KB | 401 KB (62 KB for the 960 px version) |
+| All avatars | 1,896 KB | 14 KB |
+| Total page transfer | 6,470 KB | 820 KB |
+| Requests on first load, before scrolling | 19 | 6 |
