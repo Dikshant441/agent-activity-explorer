@@ -1,0 +1,22 @@
+# dependencies and build output (match at any depth, including app/)
+node_modules/
+dist/
+dist-ssr/
+.next/
+
+# env, logs, caches
+.env
+.env.*
+*.log
+*.local
+*.tsbuildinfo
+coverage/
+
+# OS and editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# local AI tooling
+.claude/
