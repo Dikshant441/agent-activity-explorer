@@ -208,26 +208,26 @@ function showPreview(event) {
   preview.hidden = false;
 }
 
-const renderedTickerRows = new Map();
 let tickerPanel = null;
+let tickerTimer = null;
 
 function tickerRow(event) {
-  if (renderedTickerRows.has(event.id)) {
-    return renderedTickerRows.get(event.id).cloneNode(true);
-  }
   const row = document.createElement('li');
   row.className = 'ticker-row status-' + event.status;
   row.innerHTML =
     '<span class="ticker-time">' + formatTime(event.timestamp) + '</span>' +
     '<span class="ticker-agent">' + escapeHtml(event.agent) + '</span>' +
     '<span class="ticker-tool">' + escapeHtml(event.tool) + '</span>';
-  renderedTickerRows.set(event.id, row);
-  return row.cloneNode(true);
+  return row;
 }
 
 function positionTicker() {
   if (!tickerPanel) return;
   tickerPanel.style.maxHeight = window.innerHeight - 120 + 'px';
+}
+
+function onTickerKeydown(event) {
+  if (event.key === 'Escape') closeTicker();
 }
 
 function openTicker() {
@@ -238,7 +238,7 @@ function openTicker() {
   tickerPanel = panel;
   const list = panel.querySelector('.ticker-list');
 
-  setInterval(() => {
+  tickerTimer = setInterval(() => {
     const event = window.ACTIVITY[Math.floor(Math.random() * window.ACTIVITY.length)];
     list.prepend(tickerRow(event));
     while (list.children.length > tickerVisibleRows) {
@@ -247,16 +247,18 @@ function openTicker() {
   }, tickerIntervalMs);
 
   window.addEventListener('resize', positionTicker);
-  window.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') closeTicker();
-  });
+  window.addEventListener('keydown', onTickerKeydown);
   positionTicker();
   tickerToggle.setAttribute('aria-pressed', 'true');
   tickerToggle.textContent = 'Hide live calls';
 }
 
+// Stop everything the ticker started: its timer and both listeners
 function closeTicker() {
   if (!tickerPanel) return;
+  clearInterval(tickerTimer);
+  window.removeEventListener('resize', positionTicker);
+  window.removeEventListener('keydown', onTickerKeydown);
   tickerPanel.remove();
   tickerPanel = null;
   tickerToggle.setAttribute('aria-pressed', 'false');

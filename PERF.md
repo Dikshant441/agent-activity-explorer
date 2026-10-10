@@ -86,3 +86,50 @@ A frame at 60 fps has 16.7 ms, so the old handler took about 20 frames' worth of
 | All avatars | 1,896 KB | 14 KB |
 | Total page transfer | 6,470 KB | 820 KB |
 | Requests on first load, before scrolling | 19 | 6 |
+
+### 5. A 320 KB stylesheet blocks rendering and none of it is used
+- **Symptom:** the first paint waits for a large stylesheet to download and be parsed. The delay grows on a slow connection.
+- **How I found it:** resource timings showed `theme.css` at 320 KB with `renderBlockingStatus: "blocking"`. I then checked every rule in it against the page with `document.querySelector`. _(Add your own Coverage or Network panel observation here.)_
+- **Root cause:** `theme.css` is a utility-class library (classes such as `.m-0` and `.mt-4`). The page never uses any of those classes: 0 of its 1,432 rules matched an element, and none of the class names appear in `index.html` or `app.js`. All real styling lives in `app.css`. A stylesheet in the `<head>` blocks the first paint until it is loaded, so this was pure cost.
+- **Fix:** removed the `<link>` and deleted the file. The page looks the same, since nothing referenced it.
+- **Before / after:**
+
+| Measurement | Before | After |
+|---|---|---|
+| Render-blocking CSS | 326 KB (`theme.css` + `app.css`) | 6 KB (`app.css`) |
+| Rules in `theme.css` that match the page | 0 of 1,432 | file removed |
+
+### 6. Scripts block the HTML parser before anything can paint
+- **Symptom:** nothing can appear until the scripts have finished, about a second on every load, even with everything cached.
+- **How I found it:** navigation timing. `domInteractive` (the moment the HTML is fully parsed) was almost identical to `DOMContentLoaded`, which means the parser was stuck waiting on scripts. Resource timings also marked `config.js` as render-blocking. _(Add your own Performance panel observation here.)_
+- **Root cause:** `config.js` was a plain `<script>` in the `<head>`. It builds 100,000 events in a loop, and the browser cannot parse or paint any of the page below it until that finishes. `app.js` at the end of the body then blocked again while it sorted and rendered.
+- **Fix:** both scripts now load with `defer`. The browser parses the whole document first and can paint the header, hero and layout, then runs the scripts in order. No JavaScript changed.
+- **Before / after** (median of 5 loads):
+
+| Measurement | Before | After |
+|---|---|---|
+| HTML fully parsed (`domInteractive`) | 1,041 ms | 41 ms |
+| Render-blocking scripts | 1 (`config.js`) | 0 |
+| `DOMContentLoaded` | 1,041 ms | 1,048 ms |
+
+`DOMContentLoaded` did not change, and that is expected: the scripts still do about one second of work, but it now happens after the page has been parsed instead of before. Generating the data in a Web Worker would remove that remaining second from the main thread.
+
+### 7. The live ticker keeps running after it is closed
+- **Symptom:** closing "Show live calls" hides the panel but its work continues in the background, and every reopen adds another copy of that work. The page does more and holds more memory the longer it stays open, with nothing visible to explain it.
+- **How I found it:** I wrapped `setInterval`, `clearInterval`, `addEventListener` and `removeEventListener` in the DevTools console, then opened and closed the ticker five times and counted the calls. I also watched the row cache grow after the panel was closed. _(Add your own Memory panel observation here.)_
+- **Root cause:** three leaks in the ticker code:
+  - `closeTicker` removed the panel from the page but never stopped its `setInterval`. The timer kept creating rows for a detached list.
+  - Every open added a new `resize` and `keydown` listener, and none was ever removed.
+  - Every row was stored in a `Map` keyed by event id, which only grew. The cache had no benefit, because each row was cloned on use anyway.
+  - Each reopen stacked another timer on top, so the cost grew with every cycle.
+- **Fix:**
+  - `closeTicker` now calls `clearInterval` and removes both listeners.
+  - The `keydown` handler is a named function, so it can be removed.
+  - The row cache is gone. Each row is created once and removed when it scrolls off.
+- **Before / after** (5 open and close cycles):
+
+| Measurement | Before | After |
+|---|---|---|
+| Timers still running | 5 | 0 |
+| Listeners left on `window` | 10 | 0 |
+| DOM changes in 2.5 s after closing | continues (row cache grew from 3 to 6) | 0 |
