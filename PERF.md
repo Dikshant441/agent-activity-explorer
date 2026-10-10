@@ -133,3 +133,43 @@ A frame at 60 fps has 16.7 ms, so the old handler took about 20 frames' worth of
 | Timers still running | 5 | 0 |
 | Listeners left on `window` | 10 | 0 |
 | DOM changes in 2.5 s after closing | continues (row cache grew from 3 to 6) | 0 |
+
+### 8. The hover preview searches 100,000 events on every mouse move
+- **Symptom:** moving the mouse across the results list feels sticky, and the small preview box trails behind the cursor.
+- **How I found it:** DevTools console. I timed `showPreview()` with a row as the target. _(Add your own Performance panel observation here.)_
+- **Root cause:** `mousemove` fires many times per second. On each one the handler called `window.ACTIVITY.find(...)` to look up the event by id, scanning up to 100,000 objects, only to read a summary that is already rendered inside the row.
+- **Fix:** read the summary from the row's own `.result-summary` cell, and only when the cursor moves to a different row. The preview text and position are unchanged.
+- **Before / after:**
+
+| Measurement | Before | After |
+|---|---|---|
+| `showPreview()` per mouse move | 23.8 ms | under 0.01 ms |
+
+### 9. `localStorage` is written once per row on every render
+- **Symptom:** every render of the results list does avoidable synchronous work, which adds to the delay after each search.
+- **How I found it:** I wrapped `Storage.prototype.setItem` and `getItem` in the DevTools console and counted the calls made by one `renderResults()`.
+- **Root cause:** `rememberViewed` called `localStorage.setItem` inside its loop, so one render serialized and wrote the whole list 200 times. It did this even when nothing new had been seen. `localStorage` is synchronous, so each write blocks the main thread. The list was also re-read and re-parsed twice per render, and checked with `Array.includes`, which rescans it for every row.
+- **Fix:** keep the viewed ids in a `Set` loaded once at startup. A render adds its ids to the set and writes to `localStorage` once, and only if something new was added. The "New" badges behave as before.
+- **Before / after** (one render of 200 rows):
+
+| Measurement | Before | After |
+|---|---|---|
+| `setItem` calls, first render | 200 | 1 |
+| `setItem` calls, nothing new to store | 200 | 0 |
+| `getItem` calls | 2 | 0 |
+| `renderResults()` | 128 to 164 ms | 99 to 103 ms |
+
+### 10. Card heights are equalized in JavaScript
+- **Symptom:** extra layout work on load and on every window resize. With images loading late, the cards could also be seen changing height.
+- **How I found it:** reading `equalizeCardHeights()` and timing it in the DevTools console.
+- **Root cause:** to make cards in the same row equal height, the script compared every card with every other card (24 × 24), reading `offsetTop` and `offsetHeight` right after clearing a style, which forces layout repeatedly. It ran at startup, again on each avatar `load` event and again on every `resize` event.
+- **Fix:** let CSS do it. Grid items stretch to the height of their row by default, so removing `align-items: start` gives equal heights with no script. The 220 px floor moved to `min-height` on the card. The function, the image `load` listeners and the `resize` listener are deleted.
+- **Before / after:**
+
+| Measurement | Before | After |
+|---|---|---|
+| `equalizeCardHeights()` per call | 10.5 ms | removed |
+| Calls on load | 1 + one per avatar image | 0 |
+| Calls per resize event | 1 | 0 |
+
+Card heights are within 1 px of the old ones (266 and 245 px, against 267 and 246 px). I believe the difference is rounding: the script set whole-pixel heights, and CSS keeps the fractional ones.

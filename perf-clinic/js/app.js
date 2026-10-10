@@ -11,8 +11,6 @@ const tickerToggle = document.getElementById('ticker-toggle');
 const preview = document.getElementById('row-preview');
 const scrollContext = document.getElementById('scroll-context');
 
-const minCardHeight = 220;
-
 function escapeHtml(value) {
   return String(value)
     .replace(/&/g, '&amp;')
@@ -47,35 +45,17 @@ function renderAgents() {
       '</article>'
     );
   }).join('');
-  grid.querySelectorAll('img').forEach((img) => img.addEventListener('load', equalizeCardHeights));
 }
 
-function equalizeCardHeights() {
-  const cards = grid.querySelectorAll('.agent-card');
-  cards.forEach((card) => {
-    card.style.height = '';
-    const rowTop = card.offsetTop;
-    let tallest = Math.max(card.offsetHeight, minCardHeight);
-    cards.forEach((other) => {
-      if (other.offsetTop === rowTop) {
-        tallest = Math.max(tallest, other.offsetHeight);
-      }
-    });
-    card.style.height = tallest + 'px';
-  });
-}
-
-function loadViewed() {
-  return JSON.parse(localStorage.getItem(storageKey) || '[]');
-}
+// Ids of rows already seen, loaded once and kept in memory
+const viewedIds = new Set(JSON.parse(localStorage.getItem(storageKey) || '[]'));
 
 function rememberViewed(items) {
-  const viewed = loadViewed();
-  for (const item of items) {
-    if (!viewed.includes(item.id)) {
-      viewed.push(item.id);
-    }
-    localStorage.setItem(storageKey, JSON.stringify(viewed));
+  const countBefore = viewedIds.size;
+  for (const item of items) viewedIds.add(item.id);
+  // One write, and only when something new was seen
+  if (viewedIds.size > countBefore) {
+    localStorage.setItem(storageKey, JSON.stringify(Array.from(viewedIds)));
   }
 }
 
@@ -116,10 +96,9 @@ function search(query) {
 function renderResults(query) {
   const matches = search(query);
   const page = matches.slice(0, pageSize);
-  const viewed = loadViewed();
   resultsCount.textContent = matches.length.toLocaleString() + ' matching tool calls';
   resultsList.innerHTML = page.map((event) => {
-    const isNew = !viewed.includes(event.id);
+    const isNew = !viewedIds.has(event.id);
     return (
       '<li class="result-row status-' + event.status + '" data-id="' + event.id + '" data-minute="' + event.timestamp.slice(11, 16) + '">' +
       '<span class="result-time">' + formatTime(event.timestamp) + '</span>' +
@@ -197,12 +176,16 @@ function hidePreview() {
   preview.hidden = true;
 }
 
+let previewRow = null;
+
 function showPreview(event) {
   const row = event.target.closest('.result-row');
   if (!row) return;
-  const item = window.ACTIVITY.find((candidate) => candidate.id === row.dataset.id);
-  if (!item) return;
-  preview.textContent = item.summary;
+  // The summary is already in the row, so there is nothing to search for
+  if (row !== previewRow) {
+    previewRow = row;
+    preview.textContent = row.querySelector('.result-summary').textContent;
+  }
   preview.style.top = event.clientY + 12 + 'px';
   preview.style.left = event.clientX + 12 + 'px';
   preview.hidden = false;
@@ -272,7 +255,6 @@ searchInput.addEventListener('input', () => {
   searchTimer = setTimeout(() => renderResults(searchInput.value), 150);
 });
 window.addEventListener('scroll', onScroll, { passive: true });
-window.addEventListener('resize', equalizeCardHeights);
 window.addEventListener('resize', fitSummaries);
 resultsList.addEventListener('mousemove', showPreview);
 resultsList.addEventListener('mouseleave', hidePreview);
@@ -282,5 +264,4 @@ backToTop.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 's
 tickerToggle.addEventListener('click', () => (tickerPanel ? closeTicker() : openTicker()));
 
 renderAgents();
-equalizeCardHeights();
 renderResults('');
