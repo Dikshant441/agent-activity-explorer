@@ -1,6 +1,6 @@
 # PERF: Perf Clinic fixes
 
-Entries are ordered by impact on the user, highest first. Each fix is its own commit.
+Entries are ordered by impact on the user, highest first. The fixes are in the `perf:` commits, with the larger ones in a commit of their own.
 
 Numbers come from Chrome on my machine, timing the page's own functions with `performance.now()` in the DevTools console. They show the size of each change, not exact values for other machines.
 
@@ -60,7 +60,7 @@ Numbers come from Chrome on my machine, timing the page's own functions with `pe
 
 | Measurement | Before | After |
 |---|---|---|
-| `onScroll()` with a row highlighted | 335 to 395 ms | about 1.1 ms |
+| `onScroll()` with a row highlighted | 335 to 395 ms | 1 to 3 ms |
 | `onScroll()` with no row highlighted | 1.8 ms | about 1 ms |
 
 A frame at 60 fps has 16.7 ms, so the old handler took about 20 frames' worth of time per scroll event.
